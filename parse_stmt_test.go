@@ -1,11 +1,11 @@
-package lunar_test
+package lunar
 
 import (
 	"testing"
 )
 
 func TestAssignStmt(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunSnippetTests(t, []StringTest{
 		// Single assignment
 		{
 			"a := 5",
@@ -61,7 +61,7 @@ func TestAssignStmt(t *testing.T) {
 }
 
 func TestReturnStmt(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunSnippetTests(t, []StringTest{
 		{
 			"return",
 			"return",
@@ -78,7 +78,7 @@ func TestReturnStmt(t *testing.T) {
 }
 
 func TestIfStmt(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunSnippetTests(t, []StringTest{
 		{
 			`if a < 3 {
 				foo(a)
@@ -109,14 +109,10 @@ end`,
 }
 
 func TestRangeStmt(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunFuncTests(t, []StringTest{
 		{
-			"for a = range foo { }",
-			"for a in pairs(foo)\nend",
-		},
-		{
-			"for a, b = range foo { }",
-			"for a, b in pairs(foo)\nend",
+			`foo := []string{"a", "b"}; for a := range foo { println(a) }`,
+			"local foo = { \"a\", \"b\" }\nfor a in ipairs(foo) do\n\tprintln(a)\nend",
 		},
 	})
 }

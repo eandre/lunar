@@ -1,15 +1,14 @@
-package lunar_test
+package lunar
 
 import (
 	"bytes"
 	"fmt"
-	"github.com/eandre/lunar"
 	"testing"
 )
 
 func TestWriteLine(t *testing.T) {
 	buf := &bytes.Buffer{}
-	w := lunar.NewWriter(buf)
+	w := NewWriter(buf)
 
 	// Write one line
 	w.WriteLine("foo")
@@ -47,7 +46,7 @@ func TestWriteLine(t *testing.T) {
 
 func TestWriteLinef(t *testing.T) {
 	buf := &bytes.Buffer{}
-	w := lunar.NewWriter(buf)
+	w := NewWriter(buf)
 
 	want := fmt.Sprintf("\tfoo %s %d hi\n", "foo", 5)
 	w.Indent()

@@ -22,6 +22,8 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		p.parseBinaryExpr(w, t)
 	case *ast.CallExpr:
 		p.parseCallExpr(w, t)
+	case *ast.CompositeLit:
+		p.parseCompositeLit(w, t)
 	case *ast.FuncLit:
 		p.parseFuncLit(w, t, "")
 	case *ast.SelectorExpr:
@@ -77,6 +79,23 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 		}
 	}
 	w.WriteByte(')')
+}
+
+func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
+	switch t := l.Type.(type) {
+	case *ast.ArrayType:
+		w.WriteString("{ ")
+		nel := len(l.Elts)
+		for i, el := range l.Elts {
+			p.parseExpr(w, el)
+			if (i + 1) != nel {
+				w.WriteString(", ")
+			}
+		}
+		w.WriteString(" }")
+	default:
+		p.errorf(l, "Unhandled CompositeLit type: %T", t)
+	}
 }
 
 func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {

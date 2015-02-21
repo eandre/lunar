@@ -1,11 +1,11 @@
-package lunar_test
+package lunar
 
 import (
 	"testing"
 )
 
 func TestExpr(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunSnippetTests(t, []StringTest{
 		// Basic literals
 		{
 			"5.32",

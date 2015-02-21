@@ -1,20 +1,20 @@
-package lunar_test
+package lunar
 
 import (
 	"testing"
 )
 
 func TestStructType(t *testing.T) {
-	RunStringTests(t, []StringTest{
+	RunPackageTests(t, []StringTest{
 		{
 			"type foo struct{}",
 			"local foo = {}",
 		},
 	})
-	RunPackageStringTests(t, []StringTest{
+	RunPackageTests(t, []StringTest{
 		{
-			"package foo; type foo struct{}; func (f *foo) Bar() { a := 5 }",
-			"local foo = {}\nfoo.Bar = function(f)\n\tlocal a = 5\nend",
+			"type foo struct{}; func (f *foo) Bar() int { return 5 }",
+			"local foo = {}\nfoo.Bar = function(f)\n\treturn 5\nend",
 		},
 	})
 }

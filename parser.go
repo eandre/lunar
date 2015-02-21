@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"golang.org/x/tools/go/types"
 	"io"
 	"log"
+
+	"golang.org/x/tools/go/types"
 )
 
 import _ "golang.org/x/tools/go/gcimporter"
@@ -15,28 +16,16 @@ type Parser struct {
 	info *types.Info
 }
 
-func NewParser(path string, fset *token.FileSet, pkg *ast.Package, softFail bool) (*Parser, error) {
-	files := make([]*ast.File, 0, len(pkg.Files))
-	for _, f := range pkg.Files {
-		files = append(files, f)
+func NewParser(pkgName string, fset *token.FileSet, files []*ast.File) (*Parser, error) {
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
 	}
-
-	info := new(types.Info)
-
-	var parseErr error
-	conf := &types.Config{
-		Error: func(err error) {
-			e := err.(types.Error)
-			if !e.Soft || softFail {
-				parseErr = err
-			}
-		},
-	}
-
-	typPkg := types.NewPackage(path, pkg.Name)
-	types.NewChecker(conf, fset, typPkg, info).Files(files)
-	if parseErr != nil {
-		return nil, parseErr
+	conf := new(types.Config)
+	_, err := conf.Check(pkgName, fset, files, info)
+	if err != nil {
+		return nil, err
 	}
 	return &Parser{info}, nil
 }
@@ -90,6 +79,13 @@ func (p *Parser) error(node ast.Node, err string) {
 func (p *Parser) errorf(node ast.Node, format string, args ...interface{}) {
 	err := fmt.Sprintf(format, args...)
 	p.error(node, err)
+}
+
+func (p *Parser) exprType(x ast.Expr) types.Type {
+	if p.info == nil {
+		p.error(x, "No type information received; cannot deduct type")
+	}
+	return p.info.TypeOf(x).Underlying()
 }
 
 type ParseError struct {

@@ -3,6 +3,8 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
+
+	"golang.org/x/tools/go/types"
 )
 
 func (p *Parser) parseBlockStmt(w *Writer, b *ast.BlockStmt) {
@@ -24,11 +26,11 @@ func (p *Parser) parseStmt(w *Writer, s ast.Stmt) {
 		p.parseExpr(w, t.X)
 		w.WriteBytes(newline)
 	case *ast.ReturnStmt:
-		p.ParsereturnStmt(w, t)
+		p.parseReturnStmt(w, t)
 	case *ast.IfStmt:
 		p.parseIfStmt(w, t)
 	case *ast.RangeStmt:
-		p.ParserangeStmt(w, t)
+		p.parseRangeStmt(w, t)
 	default:
 		p.errorf(s, "Unhandled statement type %T", t)
 	}
@@ -93,7 +95,7 @@ func (p *Parser) parseDeclStmt(w *Writer, s *ast.DeclStmt) {
 	p.parseGenDecl(w, s.Decl.(*ast.GenDecl))
 }
 
-func (p *Parser) ParsereturnStmt(w *Writer, r *ast.ReturnStmt) {
+func (p *Parser) parseReturnStmt(w *Writer, r *ast.ReturnStmt) {
 	// Naked return
 	if r.Results == nil {
 		w.WriteLine("return")
@@ -136,6 +138,44 @@ func (p *Parser) parseIfStmt(w *Writer, s *ast.IfStmt) {
 	w.WriteLine("end")
 }
 
-func (p *Parser) ParserangeStmt(w *Writer, s *ast.RangeStmt) {
+func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
+	// TODO(eandre) We can only handle ":=" range statements for now, since
+	// Lua uses a local scope in for loops. To get around this to allow for
+	// outer-declared variables we'd have to allocate a temporary variable
+	// and resassign the outer variable at the start of the loop.
+	if s.Tok != token.DEFINE {
+		p.errorf(s, "Unhandled range token %s", s.Tok.String())
+	}
 
+	w.WriteString("for ")
+
+	// Lua requires at least one local variable; if we don't have one
+	// use "_"
+	if s.Key == nil {
+		w.WriteString("_")
+	} else {
+		w.WriteString(s.Key.(*ast.Ident).Name)
+	}
+
+	if s.Value != nil {
+		w.WriteStringf(", %s", s.Value.(*ast.Ident).Name)
+	}
+
+	w.WriteString(" in ")
+
+	switch t := p.exprType(s.X).(type) {
+	case *types.Slice:
+		w.WriteString("ipairs(")
+		p.parseExpr(w, s.X)
+		w.WriteByte(')')
+	default:
+		p.errorf(s, "Unhandled expression type %T", t)
+	}
+
+	w.WriteString(" do")
+	w.WriteNewline()
+	w.Indent()
+	p.parseBlockStmt(w, s.Body)
+	w.Dedent()
+	w.WriteLine("end")
 }
