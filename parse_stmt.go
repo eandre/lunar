@@ -143,7 +143,9 @@ func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
 	// Lua uses a local scope in for loops. To get around this to allow for
 	// outer-declared variables we'd have to allocate a temporary variable
 	// and resassign the outer variable at the start of the loop.
-	if s.Tok != token.DEFINE {
+	// ILLEGAL is supported also, which is the case where no variables at all
+	// are assigned to.
+	if s.Tok != token.DEFINE && s.Tok != token.ILLEGAL {
 		p.errorf(s, "Unhandled range token %s", s.Tok.String())
 	}
 
@@ -168,8 +170,12 @@ func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
 		w.WriteString("ipairs(")
 		p.parseExpr(w, s.X)
 		w.WriteByte(')')
+	case *types.Map:
+		w.WriteString("pairs(")
+		p.parseExpr(w, s.X)
+		w.WriteByte(')')
 	default:
-		p.errorf(s, "Unhandled expression type %T", t)
+		p.errorf(s, "Unhandled RangeStmt expression type %T", t)
 	}
 
 	w.WriteString(" do")

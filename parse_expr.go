@@ -6,6 +6,11 @@ import (
 )
 
 func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
+	if s == nil {
+		w.WriteString("nil")
+		return
+	}
+
 	switch t := s.(type) {
 	// Simple expression types, handled inline
 	case *ast.Ident:
@@ -88,6 +93,21 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		nel := len(l.Elts)
 		for i, el := range l.Elts {
 			p.parseExpr(w, el)
+			if (i + 1) != nel {
+				w.WriteString(", ")
+			}
+		}
+		w.WriteString(" }")
+
+	case *ast.MapType:
+		w.WriteString("{ ")
+		nel := len(l.Elts)
+		for i, el := range l.Elts {
+			kv := el.(*ast.KeyValueExpr)
+			w.WriteByte('[')
+			p.parseExpr(w, kv.Key)
+			w.WriteString("] = ")
+			p.parseExpr(w, kv.Value)
 			if (i + 1) != nel {
 				w.WriteString(", ")
 			}
