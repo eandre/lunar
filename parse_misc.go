@@ -22,3 +22,15 @@ func (p *Parser) parseCommentGroup(w *Writer, cg *ast.CommentGroup) {
 		}
 	}
 }
+
+func (p *Parser) parseFile(w *Writer, f *ast.File) {
+	for _, decl := range f.Decls {
+		p.parseNode(w, decl)
+	}
+}
+
+func (p *Parser) parsePackage(w *Writer, pkg *ast.Package) {
+	for _, f := range pkg.Files {
+		p.parseFile(w, f)
+	}
+}

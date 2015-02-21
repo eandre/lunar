@@ -23,7 +23,9 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	case *ast.CallExpr:
 		p.parseCallExpr(w, t)
 	case *ast.FuncLit:
-		p.parseFuncLit(w, t)
+		p.parseFuncLit(w, t, "")
+	case *ast.SelectorExpr:
+		p.parseSelectorExpr(w, t)
 
 	default:
 		p.errorf(s, "Unsupported expression type %T", s)
@@ -77,10 +79,18 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 	w.WriteByte(')')
 }
 
-func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit) {
+func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
 	w.WriteString("function(")
 	params := f.Type.Params.List
 	np := len(params)
+
+	if recv != "" {
+		w.WriteString(recv)
+		if np > 0 {
+			w.WriteString(", ")
+		}
+	}
+
 	for i, p := range params {
 		w.WriteString(p.Names[0].Name)
 		if (i + 1) != np {
@@ -93,4 +103,9 @@ func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit) {
 	p.parseBlockStmt(w, f.Body)
 	w.Dedent()
 	w.WriteString("end")
+}
+
+func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr) {
+	p.parseExpr(w, e.X)
+	w.WriteStringf(`.%s`, e.Sel.Name)
 }

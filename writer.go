@@ -53,6 +53,11 @@ func (w *Writer) WriteString(s string) {
 	w.Write([]byte(s))
 }
 
+func (w *Writer) WriteStringf(format string, args ...interface{}) {
+	str := fmt.Sprintf(format, args...)
+	w.WriteString(str)
+}
+
 func (w *Writer) WriteLine(line string) {
 	w.WriteString(line)
 	if !strings.HasSuffix(line, strNewline) {

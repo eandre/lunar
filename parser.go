@@ -3,11 +3,43 @@ package lunar
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
+	"golang.org/x/tools/go/types"
 	"io"
 	"log"
 )
 
-type Parser struct{}
+import _ "golang.org/x/tools/go/gcimporter"
+
+type Parser struct {
+	info *types.Info
+}
+
+func NewParser(path string, fset *token.FileSet, pkg *ast.Package, softFail bool) (*Parser, error) {
+	files := make([]*ast.File, 0, len(pkg.Files))
+	for _, f := range pkg.Files {
+		files = append(files, f)
+	}
+
+	info := new(types.Info)
+
+	var parseErr error
+	conf := &types.Config{
+		Error: func(err error) {
+			e := err.(types.Error)
+			if !e.Soft || softFail {
+				parseErr = err
+			}
+		},
+	}
+
+	typPkg := types.NewPackage(path, pkg.Name)
+	types.NewChecker(conf, fset, typPkg, info).Files(files)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	return &Parser{info}, nil
+}
 
 func (p *Parser) ParseNode(w io.Writer, n ast.Node) (err error) {
 	// Handle panics
@@ -36,8 +68,14 @@ func (p *Parser) parseNode(w *Writer, n ast.Node) {
 		p.parseGenDecl(w, t)
 	case *ast.BlockStmt:
 		p.parseBlockStmt(w, t)
+	case *ast.FuncDecl:
+		p.parseFuncDecl(w, t)
+	case *ast.File:
+		p.parseFile(w, t)
+	case *ast.Package:
+		p.parsePackage(w, t)
 	default:
-		p.log("Unhandled node type %v", n)
+		p.log("Unhandled node type %T", t)
 	}
 }
 

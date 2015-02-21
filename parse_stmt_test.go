@@ -62,7 +62,6 @@ func TestAssignStmt(t *testing.T) {
 
 func TestReturnStmt(t *testing.T) {
 	RunStringTests(t, []StringTest{
-		// Return statements
 		{
 			"return",
 			"return",
@@ -80,7 +79,6 @@ func TestReturnStmt(t *testing.T) {
 
 func TestIfStmt(t *testing.T) {
 	RunStringTests(t, []StringTest{
-		// If statements
 		{
 			`if a < 3 {
 				foo(a)
@@ -106,6 +104,19 @@ elseif a == 2 then
 else
 	moo()
 end`,
+		},
+	})
+}
+
+func TestRangeStmt(t *testing.T) {
+	RunStringTests(t, []StringTest{
+		{
+			"for a = range foo { }",
+			"for a in pairs(foo)\nend",
+		},
+		{
+			"for a, b = range foo { }",
+			"for a, b in pairs(foo)\nend",
 		},
 	})
 }

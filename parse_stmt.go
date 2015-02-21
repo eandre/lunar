@@ -24,9 +24,11 @@ func (p *Parser) parseStmt(w *Writer, s ast.Stmt) {
 		p.parseExpr(w, t.X)
 		w.WriteBytes(newline)
 	case *ast.ReturnStmt:
-		p.parseReturnStmt(w, t)
+		p.ParsereturnStmt(w, t)
 	case *ast.IfStmt:
 		p.parseIfStmt(w, t)
+	case *ast.RangeStmt:
+		p.ParserangeStmt(w, t)
 	default:
 		p.errorf(s, "Unhandled statement type %T", t)
 	}
@@ -91,7 +93,7 @@ func (p *Parser) parseDeclStmt(w *Writer, s *ast.DeclStmt) {
 	p.parseGenDecl(w, s.Decl.(*ast.GenDecl))
 }
 
-func (p *Parser) parseReturnStmt(w *Writer, r *ast.ReturnStmt) {
+func (p *Parser) ParsereturnStmt(w *Writer, r *ast.ReturnStmt) {
 	// Naked return
 	if r.Results == nil {
 		w.WriteLine("return")
@@ -132,4 +134,8 @@ func (p *Parser) parseIfStmt(w *Writer, s *ast.IfStmt) {
 		w.Dedent()
 	}
 	w.WriteLine("end")
+}
+
+func (p *Parser) ParserangeStmt(w *Writer, s *ast.RangeStmt) {
+
 }
