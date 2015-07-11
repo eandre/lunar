@@ -29,6 +29,7 @@ func (p *Parser) parseFile(w *Writer, f *ast.File) {
 	w.WriteLinef("local %s = _G.%s or {}", name, name)
 	w.WriteLinef("_G.%s = %s", name, name)
 	w.WriteNewline()
+	w.WriteLine("local builtins = _G.lunar_go_builtins")
 
 	w.WriteLine("-- Local declarations")
 	w.WriteString("local ")

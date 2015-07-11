@@ -1,7 +1,6 @@
 package lunar
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 
@@ -17,9 +16,9 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	switch t := s.(type) {
 	// Simple expression types, handled inline
 	case *ast.Ident:
-		if p.fset.File(p.identObject(t).Pos()) != p.fset.File(s.Pos()) {
-			fmt.Println("Accessed object in different file:", t.Name)
-		}
+		//if p.fset.File(obj.Pos()) != p.fset.File(s.Pos()) {
+		//	fmt.Println("Accessed object in different file:", t.Name)
+		//}
 		w.WriteString(t.Name)
 	case *ast.BasicLit:
 		w.WriteString(t.Value) // TODO(eandre) Assume basic literals are cross-compatible?
@@ -38,10 +37,11 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	case *ast.FuncLit:
 		p.parseFuncLit(w, t, "")
 	case *ast.SelectorExpr:
-		p.parseSelectorExpr(w, t)
+		p.parseSelectorExpr(w, t, false)
 	case *ast.UnaryExpr:
 		p.parseUnaryExpr(w, t)
-
+	case *ast.IndexExpr:
+		p.parseIndexExpr(w, t)
 	default:
 		p.errorf(s, "Unsupported expression type %T", s)
 	}
@@ -82,7 +82,20 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 	if e.Ellipsis != token.NoPos {
 		p.error(e, "CallExpr includes ellipsis (unsupported)")
 	}
-	p.parseExpr(w, e.Fun)
+
+	// If we have a builtin, handle it separately
+	tav := p.exprTypeAndValue(e.Fun)
+	if tav.IsBuiltin() {
+		p.parseBuiltin(w, e, tav)
+		return
+	}
+
+	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+		p.parseSelectorExpr(w, sel, true)
+	} else {
+		p.parseExpr(w, e.Fun)
+	}
+
 	w.WriteByte('(')
 	narg := len(e.Args)
 	for i, arg := range e.Args {
@@ -168,7 +181,7 @@ func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
 	w.WriteString("end")
 }
 
-func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr) {
+func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, method bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
 		if pn, ok := obj.(*types.PkgName); ok && p.isTransientPkg(pn.Imported()) {
@@ -177,7 +190,11 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr) {
 		}
 	}
 	p.parseExpr(w, e.X)
-	w.WriteStringf(`.%s`, e.Sel.Name)
+	if method {
+		w.WriteStringf(`:%s`, e.Sel.Name)
+	} else {
+		w.WriteStringf(`.%s`, e.Sel.Name)
+	}
 }
 
 func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
@@ -188,4 +205,11 @@ func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
 	default:
 		p.errorf(e, "Unhandled UnaryExpr operand: %v", e.Op)
 	}
+}
+
+func (p *Parser) parseIndexExpr(w *Writer, e *ast.IndexExpr) {
+	p.parseExpr(w, e.X)
+	w.WriteByte('[')
+	p.parseExpr(w, e.Index)
+	w.WriteString(" + 1]")
 }

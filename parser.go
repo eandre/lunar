@@ -111,6 +111,13 @@ func (p *Parser) importObject(i *ast.ImportSpec) types.Object {
 	return p.info.Implicits[i]
 }
 
+func (p *Parser) exprTypeAndValue(x ast.Expr) types.TypeAndValue {
+	if p.info == nil {
+		p.error(x, "No type information received; cannot deduct type")
+	}
+	return p.info.Types[x]
+}
+
 func (p *Parser) MarkTransientPackage(path string) {
 	p.transient[path] = true
 }

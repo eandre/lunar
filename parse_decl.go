@@ -3,8 +3,9 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
-	"golang.org/x/tools/go/types"
 	"path/filepath"
+
+	"golang.org/x/tools/go/types"
 )
 
 func (p *Parser) parseDeclNames(d ast.Decl) []string {
@@ -40,6 +41,8 @@ func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
 			p.parseTypeSpec(w, spec.(*ast.TypeSpec))
 		case token.IMPORT:
 			p.parseImportSpec(w, spec.(*ast.ImportSpec))
+		case token.CONST:
+			p.parseValueSpec(w, spec.(*ast.ValueSpec))
 		default:
 			p.errorf(d, "Unhandled GenDecl token type %q", d.Tok.String())
 		}
@@ -75,6 +78,20 @@ func (p *Parser) parseImportSpec(w *Writer, s *ast.ImportSpec) {
 		localName = s.Name.Name
 	}
 	w.WriteLinef(`local %s = _G["%s"]`, localName, pkgName)
+}
+
+func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec) {
+	for i, name := range s.Names {
+		var val ast.Expr
+		if len(s.Values) > i {
+			val = s.Values[i]
+		}
+		if val != nil {
+			w.WriteStringf("%s = ", name)
+			p.parseExpr(w, val)
+			w.WriteNewline()
+		}
+	}
 }
 
 func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
