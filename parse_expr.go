@@ -1,8 +1,11 @@
 package lunar
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+
+	"golang.org/x/tools/go/types"
 )
 
 func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
@@ -14,6 +17,9 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	switch t := s.(type) {
 	// Simple expression types, handled inline
 	case *ast.Ident:
+		if p.fset.File(p.identObject(t).Pos()) != p.fset.File(s.Pos()) {
+			fmt.Println("Accessed object in different file:", t.Name)
+		}
 		w.WriteString(t.Name)
 	case *ast.BasicLit:
 		w.WriteString(t.Value) // TODO(eandre) Assume basic literals are cross-compatible?
@@ -33,6 +39,8 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		p.parseFuncLit(w, t, "")
 	case *ast.SelectorExpr:
 		p.parseSelectorExpr(w, t)
+	case *ast.UnaryExpr:
+		p.parseUnaryExpr(w, t)
 
 	default:
 		p.errorf(s, "Unsupported expression type %T", s)
@@ -113,6 +121,22 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 			}
 		}
 		w.WriteString(" }")
+
+	case *ast.Ident:
+		// Constructor of a type
+		w.WriteString("setmetatable({ ")
+		nel := len(l.Elts)
+		for i, el := range l.Elts {
+			kv := el.(*ast.KeyValueExpr)
+			w.WriteString(`["`)
+			p.parseExpr(w, kv.Key)
+			w.WriteString(`"] = `)
+			p.parseExpr(w, kv.Value)
+			if (i + 1) != nel {
+				w.WriteString(", ")
+			}
+		}
+		w.WriteStringf(" }, {__index=%s})", t.Name)
 	default:
 		p.errorf(l, "Unhandled CompositeLit type: %T", t)
 	}
@@ -145,6 +169,23 @@ func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
 }
 
 func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr) {
+	if ident, ok := e.X.(*ast.Ident); ok {
+		obj := p.identObject(ident)
+		if pn, ok := obj.(*types.PkgName); ok && p.isTransientPkg(pn.Imported()) {
+			w.WriteString(e.Sel.Name)
+			return
+		}
+	}
 	p.parseExpr(w, e.X)
 	w.WriteStringf(`.%s`, e.Sel.Name)
+}
+
+func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
+	switch e.Op {
+	case token.AND:
+		// Taking the address of something is a no-op in lua since we don't have value types
+		p.parseExpr(w, e.X)
+	default:
+		p.errorf(e, "Unhandled UnaryExpr operand: %v", e.Op)
+	}
 }

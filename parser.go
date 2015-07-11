@@ -1,5 +1,7 @@
 package lunar
 
+import _ "golang.org/x/tools/go/gcimporter"
+
 import (
 	"fmt"
 	"go/ast"
@@ -10,24 +12,31 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
-import _ "golang.org/x/tools/go/gcimporter"
-
 type Parser struct {
-	info *types.Info
+	info      *types.Info
+	fset      *token.FileSet
+	pkgName   string
+	transient map[string]bool
 }
 
 func NewParser(pkgName string, fset *token.FileSet, files []*ast.File) (*Parser, error) {
 	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
+		Types:     make(map[ast.Expr]types.TypeAndValue),
+		Defs:      make(map[*ast.Ident]types.Object),
+		Uses:      make(map[*ast.Ident]types.Object),
+		Implicits: make(map[ast.Node]types.Object),
 	}
 	conf := new(types.Config)
 	_, err := conf.Check(pkgName, fset, files, info)
 	if err != nil {
 		return nil, err
 	}
-	return &Parser{info}, nil
+	return &Parser{
+		info:      info,
+		fset:      fset,
+		pkgName:   pkgName,
+		transient: make(map[string]bool),
+	}, nil
 }
 
 func (p *Parser) ParseNode(w io.Writer, n ast.Node) (err error) {
@@ -86,6 +95,31 @@ func (p *Parser) exprType(x ast.Expr) types.Type {
 		p.error(x, "No type information received; cannot deduct type")
 	}
 	return p.info.TypeOf(x).Underlying()
+}
+
+func (p *Parser) identObject(i *ast.Ident) types.Object {
+	if p.info == nil {
+		p.error(i, "No type information received; cannot deduct type")
+	}
+	return p.info.ObjectOf(i)
+}
+
+func (p *Parser) importObject(i *ast.ImportSpec) types.Object {
+	if p.info == nil {
+		p.error(i, "No type information received; cannot deduct type")
+	}
+	return p.info.Implicits[i]
+}
+
+func (p *Parser) MarkTransientPackage(path string) {
+	p.transient[path] = true
+}
+
+func (p *Parser) isTransientPkg(pkg *types.Package) bool {
+	if pkg == nil {
+		return false
+	}
+	return p.transient[pkg.Path()]
 }
 
 type ParseError struct {
