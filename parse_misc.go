@@ -28,14 +28,14 @@ func (p *Parser) parseFile(w *Writer, f *ast.File) {
 	name := pkg.Pkg.Name()
 	path := pkg.Pkg.Path()
 	w.WriteLine("-- Package declaration")
-	w.WriteLinef(`local %s = _G["%s"] or {}`, name, path)
-	w.WriteLinef(`_G["%s"] = %s`, path, name)
+	w.WriteLinef(`local _%s = _G["%s"] or {}`, name, path)
+	w.WriteLinef(`_G["%s"] = _%s`, path, name)
 	w.WriteNewline()
 	w.WriteLine("local builtins = _G.lunar_go_builtins")
 	w.WriteNewline()
 
 	for _, decl := range f.Decls {
-		p.parseNode(w, decl)
+		p.parseNode(w, decl, true)
 	}
 }
 

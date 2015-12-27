@@ -95,7 +95,7 @@ func (p *Parser) parseAssignStmt(w *Writer, s *ast.AssignStmt) {
 }
 
 func (p *Parser) parseDeclStmt(w *Writer, s *ast.DeclStmt) {
-	p.parseGenDecl(w, s.Decl.(*ast.GenDecl))
+	p.parseGenDecl(w, s.Decl.(*ast.GenDecl), false)
 }
 
 func (p *Parser) parseReturnStmt(w *Writer, r *ast.ReturnStmt) {

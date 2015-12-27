@@ -40,14 +40,14 @@ func (p *Parser) ParseNode(w io.Writer, n ast.Node) (err error) {
 	}()
 
 	writer := NewWriter(w)
-	p.parseNode(writer, n)
+	p.parseNode(writer, n, true)
 	return nil
 }
 
-func (p *Parser) parseNode(w *Writer, n ast.Node) {
+func (p *Parser) parseNode(w *Writer, n ast.Node, topLevel bool) {
 	switch t := n.(type) {
 	case *ast.GenDecl:
-		p.parseGenDecl(w, t)
+		p.parseGenDecl(w, t, topLevel)
 	case *ast.BlockStmt:
 		p.parseBlockStmt(w, t)
 	case *ast.FuncDecl:

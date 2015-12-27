@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
-func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
+func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl, topLevel bool) {
 	p.parseCommentGroup(w, d.Doc)
 	for _, spec := range d.Specs {
 		switch d.Tok {
@@ -16,7 +16,9 @@ func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
 		case token.IMPORT:
 			p.parseImportSpec(w, spec.(*ast.ImportSpec))
 		case token.CONST:
-			p.parseValueSpec(w, spec.(*ast.ValueSpec))
+			p.parseValueSpec(w, spec.(*ast.ValueSpec), topLevel)
+		case token.VAR:
+			p.parseValueSpec(w, spec.(*ast.ValueSpec), topLevel)
 		default:
 			p.errorf(d, "Unhandled GenDecl token type %q", d.Tok.String())
 		}
@@ -27,7 +29,7 @@ func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
 func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 	switch t := s.Type.(type) {
 	case *ast.StructType:
-		w.WriteLinef("%s.%s = {}", p.pkgName(s), s.Name.Name)
+		w.WriteLinef("_%s.%s = {}", p.pkgName(s), s.Name.Name)
 	case *ast.InterfaceType:
 		// No need to write anything for interfaces since they are only used for static typing
 	default:
@@ -56,19 +58,28 @@ func (p *Parser) parseImportSpec(w *Writer, s *ast.ImportSpec) {
 		// Otherwise use the package name of the actual package being imported
 		localName = pkgName.Imported().Name()
 	}
-	w.WriteLinef(`local %s = _G["%s"]`, localName, importPath)
+	w.WriteLinef(`local _%s = _G["%s"]`, localName, importPath)
 }
 
-func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec) {
+func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec, topLevel bool) {
+	pkgName := p.pkgName(s)
 	for i, name := range s.Names {
 		var val ast.Expr
 		if len(s.Values) > i {
 			val = s.Values[i]
 		}
+
+		if topLevel {
+			w.WriteStringf("_%s.%s = ", pkgName, name)
+		} else {
+			w.WriteStringf("local %s = ", name)
+		}
+
 		if val != nil {
-			w.WriteStringf("%s = ", name)
 			p.parseExpr(w, val)
 			w.WriteNewline()
+		} else {
+			p.parseZeroValue(w, s.Type)
 		}
 	}
 }
@@ -76,6 +87,7 @@ func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec) {
 func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
 	pkgName := p.pkgName(d)
 	recv := ""
+	isInit := false
 	if d.Recv != nil {
 		recv = d.Recv.List[0].Names[0].Name
 		var typeName string
@@ -85,15 +97,20 @@ func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
 		default:
 			p.errorf(d, "Unhandled FuncDecl with Recv type %T", typ)
 		}
-		w.WriteStringf("%s.%s.%s = ", pkgName, typeName, d.Name.Name)
+		w.WriteStringf("_%s.%s.%s = ", pkgName, typeName, d.Name.Name)
+	} else if d.Name.Name == "init" {
+		// init function; handle specially
+		isInit = true
+		w.WriteString("builtins.add_init(")
 	} else {
-		w.WriteStringf("%s.%s = ", pkgName, d.Name.Name)
+		w.WriteStringf("_%s.%s = ", pkgName, d.Name.Name)
 	}
 
-	p.parseFuncLit(w, &ast.FuncLit{
-		Type: d.Type,
-		Body: d.Body,
-	}, recv)
+	p.parseFunc(w, d.Type, d.Body, recv, d.Name)
+	if isInit {
+		w.WriteByte(')')
+	}
+
 	w.WriteNewline()
 	w.WriteNewline()
 }

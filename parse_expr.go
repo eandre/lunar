@@ -21,7 +21,7 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 
 		// If this itself is a package name, write it outright
 		if _, ok := obj.(*types.PkgName); ok {
-			w.WriteString(t.Name)
+			w.WriteString("_" + t.Name)
 			return
 		}
 
@@ -29,12 +29,18 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		if obj := pkg.Info.Uses[t]; obj != nil && obj.Pkg() != nil {
 			// if it's a field, don't prepend package name
 			addPkg := true
+			if p.isFuncLocal(obj) {
+				addPkg = false
+			}
 			switch obj := obj.(type) {
 			case *types.Var:
-				addPkg = !obj.IsField()
+				if obj.IsField() {
+					addPkg = false
+				}
 			}
+
 			if addPkg {
-				w.WriteString(obj.Pkg().Name() + ".")
+				w.WriteString("_" + obj.Pkg().Name() + ".")
 			}
 		}
 		w.WriteString(t.Name)
@@ -44,6 +50,8 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		w.WriteByte('(')
 		p.parseExpr(w, t.X)
 		w.WriteByte(')')
+	case *ast.TypeAssertExpr:
+		p.parseExpr(w, t.X) // noop for now
 
 	// More complex expression types, handled separately
 	case *ast.BinaryExpr:
@@ -53,7 +61,7 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	case *ast.CompositeLit:
 		p.parseCompositeLit(w, t)
 	case *ast.FuncLit:
-		p.parseFuncLit(w, t, "")
+		p.parseFunc(w, t.Type, t.Body, "", nil)
 	case *ast.SelectorExpr:
 		p.parseSelectorExpr(w, t, false)
 	case *ast.UnaryExpr:
@@ -175,28 +183,50 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 	}
 }
 
-func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
+func (p *Parser) parseFunc(w *Writer, typ *ast.FuncType, body *ast.BlockStmt, recv string, declName *ast.Ident) {
 	w.WriteString("function(")
-	params := f.Type.Params.List
-	np := len(params)
+	params := typ.Params.List
 
 	if recv != "" {
 		w.WriteString(recv)
-		if np > 0 {
+		if len(params) > 0 {
 			w.WriteString(", ")
 		}
 	}
 
-	for i, p := range params {
-		w.WriteString(p.Names[0].Name)
-		if (i + 1) != np {
-			w.WriteString(", ")
+	var names []string
+	for _, p := range params {
+		for _, name := range p.Names {
+			names = append(names, name.Name)
 		}
 	}
+
+	pkg := p.nodePkg(typ)
+	var sig *types.Signature
+	if declName != nil {
+		sig = pkg.Defs[declName].Type().(*types.Signature)
+	} else {
+		sig = pkg.Types[typ].Type.(*types.Signature)
+	}
+
+	nn := len(names)
+	for i, name := range names {
+		if (i+1) < nn {
+			w.WriteString(name + ", ")
+		} else if sig.Variadic() {
+			w.WriteString("...")
+		} else {
+			w.WriteString(name)
+		}
+	}
+
 	w.WriteByte(')')
 	w.WriteNewline()
 	w.Indent()
-	p.parseBlockStmt(w, f.Body)
+	if sig.Variadic() {
+		w.WriteLinef("local %s = {...}", names[nn-1])
+	}
+	p.parseBlockStmt(w, body)
 	w.Dedent()
 	w.WriteString("end")
 }
@@ -204,11 +234,15 @@ func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
 func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, method bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
-		if pn, ok := obj.(*types.PkgName); ok && p.IsTransientPkg(pn.Imported()) {
-			w.WriteString(e.Sel.Name)
-			return
+		if pn, ok := obj.(*types.PkgName); ok {
+			method = false // if it's a package name this is not a method call
+			if p.IsTransientPkg(pn.Imported()) {
+				w.WriteString(e.Sel.Name)
+				return
+			}
 		}
 	}
+
 	p.parseExpr(w, e.X)
 	if method {
 		w.WriteStringf(`:%s`, e.Sel.Name)
@@ -232,4 +266,24 @@ func (p *Parser) parseIndexExpr(w *Writer, e *ast.IndexExpr) {
 	w.WriteByte('[')
 	p.parseExpr(w, e.Index)
 	w.WriteString(" + 1]")
+}
+
+func (p *Parser) isFuncLocal(obj types.Object) bool {
+	_, path, _ := p.prog.PathEnclosingInterval(obj.Pos(), obj.Pos())
+	for _, n := range path {
+		switch n.(type) {
+		case *ast.FieldList, *ast.Field, *ast.DeclStmt, *ast.AssignStmt, *ast.RangeStmt:
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Parser) parseZeroValue(w *Writer, typ ast.Expr) {
+	switch typ.(type) {
+	case *ast.ArrayType, *ast.MapType:
+		w.WriteString("{}")
+	default:
+		w.WriteString("nil")
+	}
 }
