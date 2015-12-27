@@ -24,27 +24,14 @@ func (p *Parser) parseCommentGroup(w *Writer, cg *ast.CommentGroup) {
 }
 
 func (p *Parser) parseFile(w *Writer, f *ast.File) {
-	name := p.pkgName(f)
+	pkg := p.nodePkg(f)
+	name := pkg.Pkg.Name()
+	path := pkg.Pkg.Path()
 	w.WriteLine("-- Package declaration")
-	w.WriteLinef("local %s = _G.%s or {}", name, name)
-	w.WriteLinef("_G.%s = %s", name, name)
+	w.WriteLinef(`local %s = _G["%s"] or {}`, name, path)
+	w.WriteLinef(`_G["%s"] = %s`, path, name)
 	w.WriteNewline()
 	w.WriteLine("local builtins = _G.lunar_go_builtins")
-
-	w.WriteLine("-- Local declarations")
-	w.WriteString("local ")
-	dc := 0
-	for _, decl := range f.Decls {
-		names := p.parseDeclNames(decl)
-		for _, name := range names {
-			if dc > 0 {
-				w.WriteString(", ")
-			}
-			w.WriteString(name)
-			dc += 1
-		}
-	}
-	w.WriteNewline()
 	w.WriteNewline()
 
 	for _, decl := range f.Decls {

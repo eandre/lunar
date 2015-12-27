@@ -16,9 +16,27 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	switch t := s.(type) {
 	// Simple expression types, handled inline
 	case *ast.Ident:
-		//if p.fset.File(obj.Pos()) != p.fset.File(s.Pos()) {
-		//	fmt.Println("Accessed object in different file:", t.Name)
-		//}
+		pkg := p.nodePkg(t)
+		obj := pkg.Info.ObjectOf(t)
+
+		// If this itself is a package name, write it outright
+		if _, ok := obj.(*types.PkgName); ok {
+			w.WriteString(t.Name)
+			return
+		}
+
+		// Otherwise prepend the package name
+		if obj := pkg.Info.Uses[t]; obj != nil && obj.Pkg() != nil {
+			// if it's a field, don't prepend package name
+			addPkg := true
+			switch obj := obj.(type) {
+			case *types.Var:
+				addPkg = !obj.IsField()
+			}
+			if addPkg {
+				w.WriteString(obj.Pkg().Name() + ".")
+			}
+		}
 		w.WriteString(t.Name)
 	case *ast.BasicLit:
 		w.WriteString(t.Value) // TODO(eandre) Assume basic literals are cross-compatible?
@@ -149,7 +167,9 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 				w.WriteString(", ")
 			}
 		}
-		w.WriteStringf(" }, {__index=%s})", t.Name)
+		w.WriteString(" }, {__index=")
+		p.parseExpr(w, t)
+		w.WriteString("})")
 	default:
 		p.errorf(l, "Unhandled CompositeLit type: %T", t)
 	}
@@ -184,7 +204,7 @@ func (p *Parser) parseFuncLit(w *Writer, f *ast.FuncLit, recv string) {
 func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, method bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
-		if pn, ok := obj.(*types.PkgName); ok && p.isTransientPkg(pn.Imported()) {
+		if pn, ok := obj.(*types.PkgName); ok && p.IsTransientPkg(pn.Imported()) {
 			w.WriteString(e.Sel.Name)
 			return
 		}

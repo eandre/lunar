@@ -3,39 +3,9 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
-	"path/filepath"
 
 	"golang.org/x/tools/go/types"
 )
-
-func (p *Parser) parseDeclNames(d ast.Decl) []string {
-	switch t := d.(type) {
-	case *ast.FuncDecl:
-		// If there is a receiver there is no package-wide name
-		if t.Recv != nil {
-			return []string{}
-		}
-		return []string{t.Name.Name}
-	case *ast.GenDecl:
-		names := make([]string, 0, len(t.Specs))
-		for _, spec := range t.Specs {
-			switch st := spec.(type) {
-			case *ast.ImportSpec:
-				// Imports should not be in local ns from declarations
-			case *ast.ValueSpec:
-				for _, n := range st.Names {
-					names = append(names, n.Name)
-				}
-			case *ast.TypeSpec:
-				names = append(names, st.Name.Name)
-			}
-		}
-		return names
-	default:
-		p.errorf(d, "Unhandled Decl type %T", d)
-		return nil // Cannot happen
-	}
-}
 
 func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
 	p.parseCommentGroup(w, d.Doc)
@@ -57,10 +27,7 @@ func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl) {
 func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 	switch t := s.Type.(type) {
 	case *ast.StructType:
-		w.WriteLinef("%s = {}", s.Name.Name)
-		if s.Name.IsExported() {
-			w.WriteLinef("%s.%s = %s", p.pkgName(s), s.Name.Name, s.Name.Name)
-		}
+		w.WriteLinef("%s.%s = {}", p.pkgName(s), s.Name.Name)
 	case *ast.InterfaceType:
 		// No need to write anything for interfaces since they are only used for static typing
 	default:
@@ -70,18 +37,26 @@ func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 
 func (p *Parser) parseImportSpec(w *Writer, s *ast.ImportSpec) {
 	obj := p.importObject(s)
-	if pn, ok := obj.(*types.PkgName); ok && p.isTransientPkg(pn.Imported()) {
+	if pn, ok := obj.(*types.PkgName); ok && p.IsTransientPkg(pn.Imported()) {
 		return
 	}
 
+	pkg := p.nodePkg(s)
+	pkgName := pkg.Implicits[s].(*types.PkgName)
 	importPath := s.Path.Value
 	importPath = importPath[1 : len(importPath)-1] // Skip surrounding quotes
-	pkgName := filepath.Base(importPath)
-	localName := pkgName
-	if s.Name != nil {
+
+	var localName string
+	// If we have a local name, use that. Dot imports are handled by the fact
+	// that all raw idents will get the package name prepended, so dot
+	// imports just use the standard name.
+	if s.Name != nil && s.Name.Name != "." {
 		localName = s.Name.Name
+	} else {
+		// Otherwise use the package name of the actual package being imported
+		localName = pkgName.Imported().Name()
 	}
-	w.WriteLinef(`local %s = _G["%s"]`, localName, pkgName)
+	w.WriteLinef(`local %s = _G["%s"]`, localName, importPath)
 }
 
 func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec) {
@@ -99,6 +74,7 @@ func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec) {
 }
 
 func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
+	pkgName := p.pkgName(d)
 	recv := ""
 	if d.Recv != nil {
 		recv = d.Recv.List[0].Names[0].Name
@@ -109,9 +85,9 @@ func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
 		default:
 			p.errorf(d, "Unhandled FuncDecl with Recv type %T", typ)
 		}
-		w.WriteStringf("%s.%s = ", typeName, d.Name.Name)
+		w.WriteStringf("%s.%s.%s = ", pkgName, typeName, d.Name.Name)
 	} else {
-		w.WriteStringf("%s = ", d.Name.Name)
+		w.WriteStringf("%s.%s = ", pkgName, d.Name.Name)
 	}
 
 	p.parseFuncLit(w, &ast.FuncLit{
@@ -119,8 +95,5 @@ func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
 		Body: d.Body,
 	}, recv)
 	w.WriteNewline()
-	if d.Recv == nil && d.Name.IsExported() {
-		w.WriteLinef("%s.%s = %s", p.pkgName(d), d.Name.Name, d.Name.Name)
-	}
 	w.WriteNewline()
 }

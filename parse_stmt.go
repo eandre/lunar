@@ -43,8 +43,9 @@ func (p *Parser) parseAssignStmt(w *Writer, s *ast.AssignStmt) {
 	for _, lhs := range s.Lhs {
 		_, ident := lhs.(*ast.Ident)
 		_, index := lhs.(*ast.IndexExpr)
-		if !ident && !index {
-			p.errorf(s, "Got assignment to non-identifier & non-index %T", lhs)
+		_, sel := lhs.(*ast.SelectorExpr)
+		if !ident && !index && !sel {
+			p.errorf(s, "Got assignment to non-identifier/index/selector %T", lhs)
 		}
 	}
 

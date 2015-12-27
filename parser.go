@@ -137,7 +137,7 @@ func (p *Parser) MarkTransientPackage(path string) {
 	p.transient[path] = true
 }
 
-func (p *Parser) isTransientPkg(pkg *types.Package) bool {
+func (p *Parser) IsTransientPkg(pkg *types.Package) bool {
 	if pkg == nil {
 		return false
 	}
