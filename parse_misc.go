@@ -24,7 +24,7 @@ func (p *Parser) parseCommentGroup(w *Writer, cg *ast.CommentGroup) {
 }
 
 func (p *Parser) parseFile(w *Writer, f *ast.File) {
-	name := p.pkgName
+	name := p.pkgName(f)
 	w.WriteLine("-- Package declaration")
 	w.WriteLinef("local %s = _G.%s or {}", name, name)
 	w.WriteLinef("_G.%s = %s", name, name)

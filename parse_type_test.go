@@ -8,13 +8,11 @@ func TestStructType(t *testing.T) {
 	RunPackageTests(t, []StringTest{
 		{
 			"type foo struct{}",
-			"local foo = {}",
+			"local foo\n\nfoo = {}",
 		},
-	})
-	RunPackageTests(t, []StringTest{
 		{
 			"type foo struct{}; func (f *foo) Bar() int { return 5 }",
-			"local foo = {}\nfoo.Bar = function(f)\n\treturn 5\nend",
+			"local foo\n\nfoo = {}\n\nfoo.Bar = function(f)\n\treturn 5\nend",
 		},
 	})
 }

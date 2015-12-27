@@ -1,42 +1,26 @@
 package lunar
 
-import _ "golang.org/x/tools/go/gcimporter"
-
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"io"
 	"log"
 
 	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/go/loader"
 )
 
 type Parser struct {
-	info      *types.Info
-	fset      *token.FileSet
-	pkgName   string
+	prog *loader.Program
 	transient map[string]bool
+	testPkgName string // for testing purposes
 }
 
-func NewParser(pkgName string, fset *token.FileSet, files []*ast.File) (*Parser, error) {
-	info := &types.Info{
-		Types:     make(map[ast.Expr]types.TypeAndValue),
-		Defs:      make(map[*ast.Ident]types.Object),
-		Uses:      make(map[*ast.Ident]types.Object),
-		Implicits: make(map[ast.Node]types.Object),
-	}
-	conf := new(types.Config)
-	_, err := conf.Check(pkgName, fset, files, info)
-	if err != nil {
-		return nil, err
-	}
+func NewParser(prog *loader.Program) *Parser {
 	return &Parser{
-		info:      info,
-		fset:      fset,
-		pkgName:   pkgName,
+		prog: prog,
 		transient: make(map[string]bool),
-	}, nil
+	}
 }
 
 func (p *Parser) ParseNode(w io.Writer, n ast.Node) (err error) {
@@ -91,31 +75,62 @@ func (p *Parser) errorf(node ast.Node, format string, args ...interface{}) {
 }
 
 func (p *Parser) exprType(x ast.Expr) types.Type {
-	if p.info == nil {
-		p.error(x, "No type information received; cannot deduct type")
+	pkg := p.nodePkg(x)
+	if typ := pkg.Info.TypeOf(x); typ != nil {
+		return typ.Underlying()
 	}
-	return p.info.TypeOf(x).Underlying()
+	p.error(x, "Could not determine type of expr")
+	return nil // unreachable
 }
 
 func (p *Parser) identObject(i *ast.Ident) types.Object {
-	if p.info == nil {
-		p.error(i, "No type information received; cannot deduct type")
+	pkg := p.nodePkg(i)
+	if obj := pkg.Info.ObjectOf(i); obj != nil {
+		return obj
 	}
-	return p.info.ObjectOf(i)
+	p.error(i, "Could not determine ident object")
+	return nil // unreachable
 }
 
 func (p *Parser) importObject(i *ast.ImportSpec) types.Object {
-	if p.info == nil {
-		p.error(i, "No type information received; cannot deduct type")
+	pkg := p.nodePkg(i)
+	if obj := pkg.Info.Implicits[i]; obj != nil {
+		return obj
 	}
-	return p.info.Implicits[i]
+	p.error(i, "Could not determine import object")
+	return nil // unreachable
 }
 
 func (p *Parser) exprTypeAndValue(x ast.Expr) types.TypeAndValue {
-	if p.info == nil {
-		p.error(x, "No type information received; cannot deduct type")
+	if p.testPkgName != "" {
+		// for testing purposes
+		return types.TypeAndValue{}
 	}
-	return p.info.Types[x]
+
+	pkg := p.nodePkg(x)
+	if tav, ok := pkg.Info.Types[x]; ok {
+		return tav
+	}
+	p.error(x, "Could not determine type and value of expr")
+	return types.TypeAndValue{} // unreachable
+}
+
+func (p *Parser) pkgName(n ast.Node) string {
+	if p.testPkgName != "" {
+		// for testing purposes
+		return p.testPkgName
+	}
+
+	pkg := p.nodePkg(n)
+	return pkg.Pkg.Name()
+}
+
+func (p *Parser) nodePkg(n ast.Node) *loader.PackageInfo {
+	pkg, _, _ := p.prog.PathEnclosingInterval(n.Pos(), n.End())
+	if pkg == nil {
+		p.error(n, "Could not get package for node")
+	}
+	return pkg
 }
 
 func (p *Parser) MarkTransientPackage(path string) {

@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"strings"
 	"testing"
+	"golang.org/x/tools/go/loader"
 )
 
 func ParseSnippet(snippet string) (string, string, error) {
@@ -22,7 +23,7 @@ func ParseSnippet(snippet string) (string, string, error) {
 	node := f.Decls[0].(*ast.FuncDecl).Body
 	ast.Fprint(tree, fset, node, nil)
 
-	p := &Parser{}
+	p := &Parser{testPkgName: "dummy"}
 	buf := &bytes.Buffer{}
 	err = p.ParseNode(buf, node)
 	if err != nil {
@@ -58,10 +59,15 @@ func parseStr(src string, get func(*ast.File) ast.Node) (string, string, error) 
 	node := get(f)
 	ast.Fprint(tree, fset, node, nil)
 
-	p, err := NewParser("dummy", fset, []*ast.File{f})
+	var conf loader.Config
+	conf.Fset = fset
+	conf.CreateFromFiles("dummy", f)
+	prog, err := conf.Load()
 	if err != nil {
 		return "", tree.String(), err
 	}
+
+	p := NewParser(prog)
 	buf := &bytes.Buffer{}
 	err = p.ParseNode(buf, node)
 	if err != nil {
@@ -106,15 +112,27 @@ func RunFuncTests(t *testing.T, tests []StringTest) {
 }
 
 func RunPackageTests(t *testing.T, tests []StringTest) {
+	const prelude = `-- Package declaration
+local dummy = _G.dummy or {}
+_G.dummy = dummy
+
+local builtins = _G.lunar_go_builtins
+-- Local declarations
+`
 	for i, test := range tests {
 		lua, tree, err := ParsePackage(test.Go)
 		if err != nil {
 			t.Logf("Got tree: %s", tree)
 			t.Errorf("%d. Go %q resulted in error: %v", i, test.Go, err)
 			continue
-		} else if lua != test.Lua {
+		} else if !strings.HasPrefix(lua, prelude) {
+			t.Errorf("%d. Expected prelude %q, got %q", prelude, lua)
+		}
+
+		pure := lua[len(prelude):]
+		if pure != test.Lua {
 			t.Logf("Got tree: %s", tree)
-			t.Errorf("%d. Go %q resulted in Lua %q; want %q", i, test.Go, lua, test.Lua)
+			t.Errorf("%d. Go %q resulted in Lua %q; want %q", i, test.Go, pure, test.Lua)
 			continue
 		}
 	}

@@ -112,23 +112,23 @@ func TestRangeStmt(t *testing.T) {
 	RunFuncTests(t, []StringTest{
 		{
 			`foo := []string{"a", "b"}; for a := range foo { println(a) }`,
-			"local foo = { \"a\", \"b\" }\nfor a in ipairs(foo) do\n\tprintln(a)\nend",
+			"local foo = { \"a\", \"b\" }\nfor a in ipairs(foo) do\n\tprint(a)\nend",
 		},
 		{
 			`foo := []string{"a", "b"}; for a, b := range foo { println(a, b) }`,
-			"local foo = { \"a\", \"b\" }\nfor a, b in ipairs(foo) do\n\tprintln(a, b)\nend",
+			"local foo = { \"a\", \"b\" }\nfor a, b in ipairs(foo) do\n\tprint(a, b)\nend",
 		},
 		{
 			`foo := []string{"a", "b"}; for _, b := range foo { println(b) }`,
-			"local foo = { \"a\", \"b\" }\nfor _, b in ipairs(foo) do\n\tprintln(b)\nend",
+			"local foo = { \"a\", \"b\" }\nfor _, b in ipairs(foo) do\n\tprint(b)\nend",
 		},
 		{
 			`foo := []string{"a", "b"}; for range foo { }`,
 			"local foo = { \"a\", \"b\" }\nfor _ in ipairs(foo) do\nend",
 		},
 		{
-			`foo := map[int]int{5: 3, 3: 2}; for k, v := range foo { println(k, v) }`,
-			"local foo = { [5] = 3, [3] = 2 }\nfor k, v in pairs(foo) do\n\tprintln(k, v)\nend",
+			`foo := map[int]int{5: 3, 3: 2}; for k, v := range foo { print(k, v) }`,
+			"local foo = { [5] = 3, [3] = 2 }\nfor k, v in pairs(foo) do\n\twrite(k, v)\nend",
 		},
 	})
 }
