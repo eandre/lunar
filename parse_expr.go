@@ -3,8 +3,7 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
-
-	"golang.org/x/tools/go/types"
+	"go/types"
 )
 
 func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
@@ -67,7 +66,7 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 	case *ast.UnaryExpr:
 		p.parseUnaryExpr(w, t)
 	case *ast.IndexExpr:
-		p.parseIndexExpr(w, t)
+		p.parseIndexExpr(w, t, false)
 	default:
 		p.errorf(s, "Unsupported expression type %T", s)
 	}
@@ -104,11 +103,6 @@ func (p *Parser) parseBinaryExpr(w *Writer, e *ast.BinaryExpr) {
 }
 
 func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
-	// TODO(eandre) Handle ellipsis?
-	if e.Ellipsis != token.NoPos {
-		p.error(e, "CallExpr includes ellipsis (unsupported)")
-	}
-
 	// If we have a builtin, handle it separately
 	tav := p.exprTypeAndValue(e.Fun)
 	if tav.IsBuiltin() {
@@ -125,8 +119,15 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 	w.WriteByte('(')
 	narg := len(e.Args)
 	for i, arg := range e.Args {
-		p.parseExpr(w, arg)
-		if (i + 1) != narg {
+		lastArg := (i + 1) == narg
+		if e.Ellipsis.IsValid() && lastArg {
+			w.WriteString("unpack(")
+			p.parseExpr(w, arg)
+			w.WriteByte(')')
+		} else {
+			p.parseExpr(w, arg)
+		}
+		if !lastArg {
 			w.WriteString(", ")
 		}
 	}
@@ -165,12 +166,20 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		// Constructor of a type
 		w.WriteString("setmetatable({ ")
 		nel := len(l.Elts)
+		typ := p.exprType(l)
+		st := typ.(*types.Struct)
 		for i, el := range l.Elts {
-			kv := el.(*ast.KeyValueExpr)
+			var value ast.Expr
 			w.WriteString(`["`)
-			p.parseExpr(w, kv.Key)
+			if kv, ok := el.(*ast.KeyValueExpr); ok {
+				p.parseExpr(w, kv.Key)
+				value = kv.Value
+			} else {
+				w.WriteString(st.Field(i).Name())
+				value = el
+			}
 			w.WriteString(`"] = `)
-			p.parseExpr(w, kv.Value)
+			p.parseExpr(w, value)
 			if (i + 1) != nel {
 				w.WriteString(", ")
 			}
@@ -211,7 +220,7 @@ func (p *Parser) parseFunc(w *Writer, typ *ast.FuncType, body *ast.BlockStmt, re
 
 	nn := len(names)
 	for i, name := range names {
-		if (i+1) < nn {
+		if (i + 1) < nn {
 			w.WriteString(name + ", ")
 		} else if sig.Variadic() {
 			w.WriteString("...")
@@ -231,11 +240,11 @@ func (p *Parser) parseFunc(w *Writer, typ *ast.FuncType, body *ast.BlockStmt, re
 	w.WriteString("end")
 }
 
-func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, method bool) {
+func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, methodCall bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
 		if pn, ok := obj.(*types.PkgName); ok {
-			method = false // if it's a package name this is not a method call
+			methodCall = false // if it's a package name this is not a method call
 			if p.IsTransientPkg(pn.Imported()) {
 				w.WriteString(e.Sel.Name)
 				return
@@ -243,12 +252,40 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, method bool) 
 		}
 	}
 
-	p.parseExpr(w, e.X)
-	if method {
+	if methodCall {
+		p.parseExpr(w, e.X)
 		w.WriteStringf(`:%s`, e.Sel.Name)
-	} else {
-		w.WriteStringf(`.%s`, e.Sel.Name)
+		return
 	}
+
+	// Determine if we have a method expression
+	if _, ok := p.exprType(e).(*types.Signature); ok {
+		selTyp := p.exprType(e.X)
+		for {
+			if ptr, ok := selTyp.(*types.Pointer); ok {
+				selTyp = ptr.Elem()
+			} else {
+				break
+			}
+		}
+		if named, ok := selTyp.(*types.Named); ok {
+			// If we're looking up a method, we have a method expression
+			for i := 0; i < named.NumMethods(); i++ {
+				m := named.Method(i)
+				if m.Name() == e.Sel.Name {
+					// Method expression; create a stable closure to preserve equality.
+					w.WriteString("builtins.create_closure(")
+					p.parseExpr(w, e.X)
+					w.WriteStringf(`, "%s")`, e.Sel.Name)
+					return
+				}
+			}
+		}
+	}
+
+	// Regular field lookup
+	p.parseExpr(w, e.X)
+	w.WriteStringf(`.%s`, e.Sel.Name)
 }
 
 func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
@@ -256,16 +293,40 @@ func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
 	case token.AND:
 		// Taking the address of something is a no-op in lua since we don't have value types
 		p.parseExpr(w, e.X)
+	case token.NOT:
+		w.WriteString("(not ")
+		p.parseExpr(w, e.X)
+		w.WriteByte(')')
 	default:
 		p.errorf(e, "Unhandled UnaryExpr operand: %v", e.Op)
 	}
 }
 
-func (p *Parser) parseIndexExpr(w *Writer, e *ast.IndexExpr) {
-	p.parseExpr(w, e.X)
-	w.WriteByte('[')
-	p.parseExpr(w, e.Index)
-	w.WriteString(" + 1]")
+func (p *Parser) parseIndexExpr(w *Writer, e *ast.IndexExpr, assign bool) {
+	if !assign {
+		w.WriteByte('(')
+	}
+	typ := p.exprType(e.X).Underlying()
+	switch typ.(type) {
+	case *types.Map:
+		p.parseExpr(w, e.X)
+		w.WriteByte('[')
+		p.parseExpr(w, e.Index)
+		w.WriteByte(']')
+	case *types.Slice, *types.Array:
+		p.parseExpr(w, e.X)
+		w.WriteByte('[')
+		p.parseExpr(w, e.Index)
+		w.WriteString(" + 1]")
+	default:
+		p.errorf(e, "unhandled index type %s", typ)
+	}
+
+	if !assign {
+		w.WriteString(" or ")
+		p.writeZeroValue(w, p.exprType(e).Underlying())
+		w.WriteByte(')')
+	}
 }
 
 func (p *Parser) isFuncLocal(obj types.Object) bool {
@@ -283,6 +344,27 @@ func (p *Parser) parseZeroValue(w *Writer, typ ast.Expr) {
 	switch typ.(type) {
 	case *ast.ArrayType, *ast.MapType:
 		w.WriteString("{}")
+	default:
+		w.WriteString("nil")
+	}
+}
+
+func (p *Parser) writeZeroValue(w *Writer, typ types.Type) {
+	switch typ := typ.(type) {
+	case *types.Map:
+		w.WriteString("nil")
+	case *types.Basic:
+		switch i := typ.Info(); true {
+		case (i & types.IsBoolean) != 0:
+			w.WriteString("false")
+		case (i & types.IsNumeric) != 0:
+			w.WriteString("0")
+		case (i & types.IsString) != 0:
+			w.WriteString(`""`)
+		default:
+			panic("Unhandled zero value type")
+		}
+
 	default:
 		w.WriteString("nil")
 	}

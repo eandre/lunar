@@ -3,8 +3,7 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
-
-	"golang.org/x/tools/go/types"
+	"go/types"
 )
 
 func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl, topLevel bool) {
@@ -30,8 +29,8 @@ func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 	switch t := s.Type.(type) {
 	case *ast.StructType:
 		w.WriteLinef("_%s.%s = {}", p.pkgName(s), s.Name.Name)
-	case *ast.InterfaceType:
-		// No need to write anything for interfaces since they are only used for static typing
+	case *ast.InterfaceType, *ast.FuncType:
+		// No need to write anything since they are only used for static typing
 	default:
 		p.errorf(s, "Unhandled TypeSpec type %T", t)
 	}

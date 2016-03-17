@@ -3,22 +3,22 @@ package lunar
 import (
 	"fmt"
 	"go/ast"
+	"go/types"
 	"io"
 	"log"
 
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/go/loader"
 )
 
 type Parser struct {
-	prog *loader.Program
-	transient map[string]bool
+	prog        *loader.Program
+	transient   map[string]bool
 	testPkgName string // for testing purposes
 }
 
 func NewParser(prog *loader.Program) *Parser {
 	return &Parser{
-		prog: prog,
+		prog:      prog,
 		transient: make(map[string]bool),
 	}
 }
@@ -128,7 +128,12 @@ func (p *Parser) pkgName(n ast.Node) string {
 func (p *Parser) nodePkg(n ast.Node) *loader.PackageInfo {
 	pkg, _, _ := p.prog.PathEnclosingInterval(n.Pos(), n.End())
 	if pkg == nil {
-		p.error(n, "Could not get package for node")
+		if ident, ok := n.(*ast.Ident); ok {
+			f := p.prog.Fset.File(n.Pos())
+			fmt.Println("ident", ident.Name, f, n.Pos())
+		}
+		panic("Could not get package for node")
+		p.errorf(n, "Could not get package for node %T", n)
 	}
 	return pkg
 }

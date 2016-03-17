@@ -3,8 +3,7 @@ package lunar
 import (
 	"go/ast"
 	"go/token"
-
-	"golang.org/x/tools/go/types"
+	"go/types"
 )
 
 func (p *Parser) parseBlockStmt(w *Writer, b *ast.BlockStmt) {
@@ -76,7 +75,13 @@ func (p *Parser) parseAssignStmt(w *Writer, s *ast.AssignStmt) {
 	}
 
 	for i, lhs := range s.Lhs {
-		p.parseExpr(w, lhs)
+		switch lhs := lhs.(type) {
+		case *ast.IndexExpr:
+			p.parseIndexExpr(w, lhs, true)
+		default:
+			p.parseExpr(w, lhs)
+		}
+
 		// Add a comma if we have more expressions coming
 		if (i + 1) != nl {
 			w.WriteString(", ")
@@ -172,11 +177,13 @@ func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
 	case *types.Slice:
 		w.WriteString("ipairs(")
 		p.parseExpr(w, s.X)
-		w.WriteByte(')')
+		// Add "or {}" to match Go's behavior of iteration over nil slices
+		w.WriteString(" or {})")
 	case *types.Map:
 		w.WriteString("pairs(")
 		p.parseExpr(w, s.X)
-		w.WriteByte(')')
+		// Add "or {}" to match Go's behavior of iteration over nil maps
+		w.WriteString(" or {})")
 	default:
 		p.errorf(s, "Unhandled RangeStmt expression type %T", t)
 	}
