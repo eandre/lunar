@@ -164,18 +164,22 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 
 	case *ast.Ident:
 		// Constructor of a type
+		initialized := map[string]bool{}
 		w.WriteString("setmetatable({ ")
 		nel := len(l.Elts)
 		typ := p.exprType(l)
 		st := typ.(*types.Struct)
 		for i, el := range l.Elts {
 			var value ast.Expr
+			var fieldName string
 			w.WriteString(`["`)
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				p.parseExpr(w, kv.Key)
 				value = kv.Value
+				fieldName = kv.Key.(*ast.Ident).Name
 			} else {
-				w.WriteString(st.Field(i).Name())
+				fieldName = st.Field(i).Name()
+				w.WriteString(fieldName)
 				value = el
 			}
 			w.WriteString(`"] = `)
@@ -183,7 +187,25 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 			if (i + 1) != nel {
 				w.WriteString(", ")
 			}
+
+			initialized[fieldName] = true
 		}
+
+		// Go through all fields that were not initialized and assign default values
+		for i := 0; i < st.NumFields(); i++ {
+			field := st.Field(i)
+			if !initialized[field.Name()] {
+				if val := p.getZeroValue(w, field.Type()); val != "nil" {
+					if i > 0 || len(initialized) > 0 {
+						// We have a previous field; add a preceding comma
+						w.WriteString(", ")
+					}
+
+					w.WriteStringf(`["%s"] = %s`, field.Name(), val)
+				}
+			}
+		}
+
 		w.WriteString(" }, {__index=")
 		p.parseExpr(w, t)
 		w.WriteString("})")
@@ -350,22 +372,25 @@ func (p *Parser) parseZeroValue(w *Writer, typ ast.Expr) {
 }
 
 func (p *Parser) writeZeroValue(w *Writer, typ types.Type) {
+	w.WriteString(p.getZeroValue(w, typ))
+}
+
+func (p *Parser) getZeroValue(w *Writer, typ types.Type) string {
 	switch typ := typ.(type) {
 	case *types.Map:
-		w.WriteString("nil")
+		return "nil"
 	case *types.Basic:
 		switch i := typ.Info(); true {
 		case (i & types.IsBoolean) != 0:
-			w.WriteString("false")
+			return "false"
 		case (i & types.IsNumeric) != 0:
-			w.WriteString("0")
+			return "0"
 		case (i & types.IsString) != 0:
-			w.WriteString(`""`)
+			return `""`
 		default:
 			panic("Unhandled zero value type")
 		}
-
 	default:
-		w.WriteString("nil")
+		return "nil"
 	}
 }
