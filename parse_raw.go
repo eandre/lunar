@@ -7,13 +7,13 @@ import (
 
 const LuaPkgPath = "github.com/eandre/lunar/lua"
 
-func (p *Parser) parseRaw(w *Writer, e *ast.CallExpr) (ok bool) {
+func (p *Parser) parseRaw(w *Writer, e *ast.CallExpr) bool {
 	sel, ok := e.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
 	if sel.Sel.Name != "Raw" {
-		return
+		return false
 	}
 
 	ident, ok := sel.X.(*ast.Ident)
@@ -27,7 +27,7 @@ func (p *Parser) parseRaw(w *Writer, e *ast.CallExpr) (ok bool) {
 	}
 
 	if pkg.Imported().Path() != LuaPkgPath {
-		return
+		return false
 	}
 
 	for _, arg := range e.Args {

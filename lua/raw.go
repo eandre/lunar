@@ -1,5 +1,7 @@
 package lua
 
-func Raw(src string) interface{} {
-	panic("unreachable")
+type RawSource interface{}
+
+func Raw(src string) RawSource {
+	return src
 }
