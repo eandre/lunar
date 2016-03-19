@@ -262,11 +262,10 @@ func (p *Parser) parseFunc(w *Writer, typ *ast.FuncType, body *ast.BlockStmt, re
 	w.WriteString("end")
 }
 
-func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, methodCall bool) {
+func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, inCall bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
 		if pn, ok := obj.(*types.PkgName); ok {
-			methodCall = false // if it's a package name this is not a method call
 			if p.IsTransientPkg(pn.Imported()) {
 				w.WriteString(e.Sel.Name)
 				return
@@ -274,35 +273,44 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, methodCall bo
 		}
 	}
 
-	if methodCall {
-		p.parseExpr(w, e.X)
-		w.WriteStringf(`:%s`, e.Sel.Name)
-		return
+	// See if e.X is a method
+	isMethod := false
+	selTyp := p.exprType(e.X)
+	for {
+		if ptr, ok := selTyp.(*types.Pointer); ok {
+			selTyp = ptr.Elem()
+		} else {
+			break
+		}
 	}
-
-	// Determine if we have a method expression
-	if _, ok := p.exprType(e).(*types.Signature); ok {
-		selTyp := p.exprType(e.X)
-		for {
-			if ptr, ok := selTyp.(*types.Pointer); ok {
-				selTyp = ptr.Elem()
-			} else {
+	if named, ok := selTyp.(*types.Named); ok {
+		for i := 0; i < named.NumMethods(); i++ {
+			m := named.Method(i)
+			if m.Name() == e.Sel.Name {
+				isMethod = true
 				break
 			}
 		}
-		if named, ok := selTyp.(*types.Named); ok {
-			// If we're looking up a method, we have a method expression
-			for i := 0; i < named.NumMethods(); i++ {
-				m := named.Method(i)
-				if m.Name() == e.Sel.Name {
-					// Method expression; create a stable closure to preserve equality.
-					w.WriteString("builtins.create_closure(")
-					p.parseExpr(w, e.X)
-					w.WriteStringf(`, "%s")`, e.Sel.Name)
-					return
-				}
-			}
+	}
+
+	if inCall {
+		p.parseExpr(w, e.X)
+		if isMethod {
+			w.WriteStringf(`:%s`, e.Sel.Name)
+		} else {
+			w.WriteStringf(`.%s`, e.Sel.Name)
 		}
+		return
+	}
+
+	// If the type is a function and we are referring to a method,
+	// this is a method expression.
+	if _, ok := p.exprType(e).(*types.Signature); ok && isMethod {
+		// Method expression; create a stable closure to preserve equality.
+		w.WriteString("builtins.create_closure(")
+		p.parseExpr(w, e.X)
+		w.WriteStringf(`, "%s")`, e.Sel.Name)
+		return
 	}
 
 	// Regular field lookup
