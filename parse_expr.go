@@ -283,9 +283,13 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, inCall bool) 
 			break
 		}
 	}
-	if named, ok := selTyp.(*types.Named); ok {
-		for i := 0; i < named.NumMethods(); i++ {
-			m := named.Method(i)
+	type hasMethods interface {
+		NumMethods() int
+		Method(i int) *types.Func
+	}
+	if obj, ok := selTyp.(hasMethods); ok {
+		for i := 0; i < obj.NumMethods(); i++ {
+			m := obj.Method(i)
 			if m.Name() == e.Sel.Name {
 				isMethod = true
 				break

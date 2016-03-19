@@ -9,6 +9,16 @@ func WriteBuiltins(w io.Writer) (n int, err error) {
 local builtins = _G.lunar_go_builtins or {}
 _G.lunar_go_builtins = builtins
 
+local err_meta = {__index={
+	Error = function(self)
+		return self.msg
+	end
+}}
+
+function builtins.create_error(msg)
+	return setmetatable({msg=msg}, err_meta)
+end
+
 function builtins.append(dst, ...)
 	for i=1, select('#', ...) do
 		local val = select(i, ...)
