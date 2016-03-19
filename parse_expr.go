@@ -103,6 +103,10 @@ func (p *Parser) parseBinaryExpr(w *Writer, e *ast.BinaryExpr) {
 }
 
 func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
+	if ok := p.parseRaw(w, e); ok {
+		return
+	}
+
 	// If we have a builtin, handle it separately
 	tav := p.exprTypeAndValue(e.Fun)
 	if tav.IsBuiltin() {
