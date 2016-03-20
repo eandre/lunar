@@ -44,7 +44,7 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		}
 		w.WriteString(t.Name)
 	case *ast.BasicLit:
-		w.WriteString(t.Value) // TODO(eandre) Assume basic literals are cross-compatible?
+		p.parseBasicLit(w, t)
 	case *ast.ParenExpr:
 		w.WriteByte('(')
 		p.parseExpr(w, t.X)
@@ -69,6 +69,24 @@ func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
 		p.parseIndexExpr(w, t, false)
 	default:
 		p.errorf(s, "Unsupported expression type %T", s)
+	}
+}
+
+func (p *Parser) parseBasicLit(w *Writer, e *ast.BasicLit) {
+	switch e.Kind {
+	case token.INT, token.FLOAT:
+		w.WriteString(e.Value)
+	case token.CHAR:
+		w.WriteStringf(`"%s"`, e.Value[1:len(e.Value)-1])
+	case token.STRING:
+		inner := e.Value[1 : len(e.Value)-1]
+		if e.Value[0] == '`' {
+			w.WriteStringf(`[=[%s]=]`, inner)
+		} else {
+			w.WriteStringf(`"%s"`, inner)
+		}
+	default:
+		p.errorf(e, "Unsupported basic literal type %s", e.Kind)
 	}
 }
 
