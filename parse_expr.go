@@ -131,6 +131,13 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 		p.parseBuiltin(w, e, tav)
 		return
 	}
+	// If we have a type conversion, just unwrap it
+	if tav.IsType() {
+		w.WriteByte('(')
+		p.parseExpr(w, e.Args[0])
+		w.WriteByte(')')
+		return
+	}
 
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
 		p.parseSelectorExpr(w, sel, true)
@@ -157,8 +164,9 @@ func (p *Parser) parseCallExpr(w *Writer, e *ast.CallExpr) {
 }
 
 func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
-	switch t := l.Type.(type) {
-	case *ast.ArrayType:
+	typ := p.exprType(l)
+	switch typ := typ.Underlying().(type) {
+	case *types.Array, *types.Slice:
 		w.WriteString("{ ")
 		nel := len(l.Elts)
 		for i, el := range l.Elts {
@@ -169,7 +177,7 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		}
 		w.WriteString(" }")
 
-	case *ast.MapType:
+	case *types.Map:
 		w.WriteString("{ ")
 		nel := len(l.Elts)
 		for i, el := range l.Elts {
@@ -184,13 +192,11 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		}
 		w.WriteString(" }")
 
-	case *ast.Ident:
+	case *types.Struct:
 		// Constructor of a type
 		initialized := map[string]bool{}
 		w.WriteString("setmetatable({ ")
 		nel := len(l.Elts)
-		typ := p.exprType(l)
-		st := typ.(*types.Struct)
 		for i, el := range l.Elts {
 			var value ast.Expr
 			var fieldName string
@@ -200,7 +206,7 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 				value = kv.Value
 				fieldName = kv.Key.(*ast.Ident).Name
 			} else {
-				fieldName = st.Field(i).Name()
+				fieldName = typ.Field(i).Name()
 				w.WriteString(fieldName)
 				value = el
 			}
@@ -214,8 +220,8 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		}
 
 		// Go through all fields that were not initialized and assign default values
-		for i := 0; i < st.NumFields(); i++ {
-			field := st.Field(i)
+		for i := 0; i < typ.NumFields(); i++ {
+			field := typ.Field(i)
 			if !initialized[field.Name()] {
 				if val := p.getZeroValue(w, field.Type()); val != "nil" {
 					if i > 0 || len(initialized) > 0 {
@@ -229,10 +235,10 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		}
 
 		w.WriteString(" }, {__index=")
-		p.parseExpr(w, t)
+		p.parseExpr(w, l.Type)
 		w.WriteString("})")
 	default:
-		p.errorf(l, "Unhandled CompositeLit type: %T", t)
+		p.errorf(l, "Unhandled CompositeLit type: %T", typ)
 	}
 }
 
@@ -351,6 +357,10 @@ func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
 		p.parseExpr(w, e.X)
 	case token.NOT:
 		w.WriteString("(not ")
+		p.parseExpr(w, e.X)
+		w.WriteByte(')')
+	case token.SUB, token.ADD:
+		w.WriteString("(" + e.Op.String())
 		p.parseExpr(w, e.X)
 		w.WriteByte(')')
 	default:

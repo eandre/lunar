@@ -67,6 +67,7 @@ func (p *Parser) parseAssignStmt(w *Writer, s *ast.AssignStmt) {
 
 		// Add right hand side
 		p.parseExpr(w, s.Rhs[0])
+		w.WriteBytes(newline)
 		return
 
 	case token.DEFINE:
