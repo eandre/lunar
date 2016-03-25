@@ -83,6 +83,15 @@ func (p *Parser) exprType(x ast.Expr) types.Type {
 	return nil // unreachable
 }
 
+func (p *Parser) exprTypeRaw(x ast.Expr) types.Type {
+	pkg := p.nodePkg(x)
+	if typ := pkg.Info.TypeOf(x); typ != nil {
+		return typ
+	}
+	p.error(x, "Could not determine type of expr")
+	return nil // unreachable
+}
+
 func (p *Parser) identObject(i *ast.Ident) types.Object {
 	pkg := p.nodePkg(i)
 	if obj := pkg.Info.ObjectOf(i); obj != nil {

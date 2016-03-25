@@ -194,8 +194,18 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 
 	case *types.Struct:
 		// Constructor of a type
+		// Check if we have methods
+		typTyp := p.exprTypeRaw(l.Type)
+		mset := types.NewMethodSet(types.NewPointer(typTyp))
+		haveMethods := mset.Len() > 0
+
+		if haveMethods {
+			w.WriteString("setmetatable({ ")
+		} else {
+			w.WriteString("{ ")
+		}
+
 		initialized := map[string]bool{}
-		w.WriteString("setmetatable({ ")
 		nel := len(l.Elts)
 		for i, el := range l.Elts {
 			var value ast.Expr
@@ -234,9 +244,13 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 			}
 		}
 
-		w.WriteString(" }, {__index=")
-		p.parseExpr(w, l.Type)
-		w.WriteString("})")
+		if haveMethods {
+			w.WriteString(" }, {__index=")
+			p.parseExpr(w, l.Type)
+			w.WriteString("})")
+		} else {
+			w.WriteString("}")
+		}
 	default:
 		p.errorf(l, "Unhandled CompositeLit type: %T", typ)
 	}
