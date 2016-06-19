@@ -30,6 +30,10 @@ func (p *Parser) parseStmt(w *Writer, s ast.Stmt) {
 		p.parseIfStmt(w, t)
 	case *ast.RangeStmt:
 		p.parseRangeStmt(w, t)
+	case *ast.ForStmt:
+		p.parseForStmt(w, t)
+	case *ast.IncDecStmt:
+		p.parseIncDecStmt(w, t)
 	default:
 		p.errorf(s, "Unhandled statement type %T", t)
 	}
@@ -195,4 +199,39 @@ func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
 	p.parseBlockStmt(w, s.Body)
 	w.Dedent()
 	w.WriteLine("end")
+}
+
+func (p *Parser) parseForStmt(w *Writer, s *ast.ForStmt) {
+	w.WriteLine("do")
+	w.Indent()
+	if s.Init != nil {
+		p.parseStmt(w, s.Init)
+	}
+	w.WriteString("while ")
+	if s.Cond != nil {
+		p.parseExpr(w, s.Cond)
+	} else {
+		w.WriteString("true")
+	}
+	w.WriteLine(" do")
+	w.Indent()
+	p.parseBlockStmt(w, s.Body)
+	if s.Post != nil {
+		p.parseStmt(w, s.Post)
+	}
+	w.Dedent()
+	w.WriteLine("end")
+	w.Dedent()
+	w.WriteLine("end")
+}
+
+func (p *Parser) parseIncDecStmt(w *Writer, s *ast.IncDecStmt) {
+	p.parseExpr(w, s.X)
+	w.WriteString(" = ")
+	p.parseExpr(w, s.X)
+	if s.Tok == token.INC {
+		w.WriteLine(" + 1")
+	} else {
+		w.WriteLine(" - 1")
+	}
 }

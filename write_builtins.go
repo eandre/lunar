@@ -20,6 +20,9 @@ function builtins.create_error(msg)
 end
 
 function builtins.append(dst, ...)
+	if dst == nil then
+		dst = {}
+	end
 	for i=1, select('#', ...) do
 		local val = select(i, ...)
 		table.insert(dst, val)
@@ -29,6 +32,13 @@ end
 
 function builtins.delete(map, key)
 	map[key] = nil
+end
+
+function builtins.length(obj)
+	if obj == nil then
+		return 0
+	end
+	return #obj
 end
 
 function builtins.mapLength(m)

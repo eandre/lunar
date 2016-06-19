@@ -28,7 +28,7 @@ func (p *Parser) parseGenDecl(w *Writer, d *ast.GenDecl, topLevel bool) {
 func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 	switch t := s.Type.(type) {
 	case *ast.StructType:
-		w.WriteLinef("_%s.%s = {}", p.pkgName(s), s.Name.Name)
+		p.parseStructType(w, t, s)
 	case *ast.InterfaceType, *ast.FuncType, *ast.Ident:
 		// No need to write anything since they are only used for static typing
 	default:
@@ -37,12 +37,17 @@ func (p *Parser) parseTypeSpec(w *Writer, s *ast.TypeSpec) {
 }
 
 func (p *Parser) parseImportSpec(w *Writer, s *ast.ImportSpec) {
+	pkg := p.nodePkg(s)
+	if pkg.Implicits[s] == nil {
+		// Anonymous import
+		return
+	}
+
 	obj := p.importObject(s)
 	if pn, ok := obj.(*types.PkgName); ok && p.IsTransientPkg(pn.Imported()) {
 		return
 	}
 
-	pkg := p.nodePkg(s)
 	pkgName := pkg.Implicits[s].(*types.PkgName)
 	importPath := s.Path.Value
 	importPath = importPath[1 : len(importPath)-1] // Skip surrounding quotes
@@ -76,10 +81,11 @@ func (p *Parser) parseValueSpec(w *Writer, s *ast.ValueSpec, topLevel bool) {
 
 		if val != nil {
 			p.parseExpr(w, val)
-			w.WriteNewline()
 		} else {
-			p.parseZeroValue(w, s.Type)
+			typ := p.exprType(name)
+			p.writeZeroValue(w, typ.Underlying(), "")
 		}
+		w.WriteNewline()
 	}
 }
 
@@ -112,4 +118,125 @@ func (p *Parser) parseFuncDecl(w *Writer, d *ast.FuncDecl) {
 
 	w.WriteNewline()
 	w.WriteNewline()
+}
+
+func (p *Parser) parseStructType(w *Writer, t *ast.StructType, s *ast.TypeSpec) {
+	pkgName := p.pkgName(s)
+	w.WriteLinef("_%s.%s = {}", pkgName, s.Name.Name)
+
+	// Introduce a per-type helper that can initialize structs from a table
+	{
+		w.WriteLinef(`
+_%s.%s._createFromTable = function(tbl)
+	if tbl == nil then
+		return nil, nil
+	end
+	if type(tbl) ~= "table" then
+		return nil, builtins.create_error("cannot initialize struct from non-table")
+	end
+	local self = setmetatable({}, {__index=_%s.%s})
+	local obj, err
+	`, pkgName, s.Name.Name, pkgName, s.Name.Name)
+
+		// For each field, add an initializer
+		obj := p.identObject(s.Name)
+		typ := obj.Type().Underlying().(*types.Struct)
+		for i := 0; i < typ.NumFields(); i++ {
+			// Get the raw field type
+			f := typ.Field(i)
+			fType := f.Type()
+			var named *types.Named
+			for {
+				if n, ok := fType.(*types.Named); named == nil && ok {
+					named = n
+				}
+
+				if ptr, ok := fType.Underlying().(*types.Pointer); ok {
+					fType = ptr.Elem()
+				} else {
+					break
+				}
+			}
+
+			name := f.Name()
+			switch fType := fType.Underlying().(type) {
+			case *types.Struct:
+				if named != nil {
+					w.WriteLinef(`
+		obj, err = _%s.%s._createFromTable(tbl.%s)
+		if err ~= nil then
+			return nil, err
+		end
+		self.%s = obj
+					`, named.Obj().Pkg().Name(), named.Obj().Name(), name, name)
+				} else {
+					w.WriteLinef("self.%s = tbl.%s", name, name)
+				}
+			case *types.Interface:
+				// do nothing, can't deserialize interface types since we don't know
+				// which concrete type to use.
+			default:
+				w.WriteLinef("\tself.%s = %s", name, p.getZeroValue(w, fType, ""))
+				w.WriteLinef("\tif type(self.%s) == type(tbl.%s) then self.%s = tbl.%s end", name, name, name, name)
+			}
+		}
+		w.WriteLine("\treturn self, nil\nend")
+	}
+
+	// And a helper to initialize an existing object
+	{
+		w.WriteLinef(`
+_%s.%s._initializeFromTable = function(self, tbl)
+	if tbl == nil then
+		return nil
+	end
+	if type(tbl) ~= "table" then
+		return builtins.create_error("cannot initialize struct from non-table")
+	end
+	local obj, err
+		`, pkgName, s.Name.Name)
+
+		// For each field, add an initializer
+		obj := p.identObject(s.Name)
+		typ := obj.Type().Underlying().(*types.Struct)
+		for i := 0; i < typ.NumFields(); i++ {
+			// Get the raw field type
+			f := typ.Field(i)
+			fType := f.Type()
+			var named *types.Named
+			for {
+				if n, ok := fType.(*types.Named); named == nil && ok {
+					named = n
+				}
+
+				if ptr, ok := fType.Underlying().(*types.Pointer); ok {
+					fType = ptr.Elem()
+				} else {
+					break
+				}
+			}
+
+			name := computeFieldName(f.Name(), typ.Tag(i))
+			switch fType.Underlying().(type) {
+			case *types.Struct:
+				if named != nil {
+					w.WriteLinef(`
+		obj, err = _%s.%s._createFromTable(tbl.%s)
+		if err ~= nil then
+			return err
+		end
+		self.%s = obj
+					`, named.Obj().Pkg().Name(), named.Obj().Name(), name, name)
+				} else {
+					w.WriteLinef("self.%s = tbl.%s", name, name)
+				}
+			case *types.Interface:
+				// do nothing, can't deserialize interface types since we don't know
+				// which concrete type to use.
+			default:
+				w.WriteLinef("\tif type(self.%s) == type(tbl.%s) then self.%s = tbl.%s end", name, name, name, name)
+			}
+		}
+		w.WriteLine("\treturn nil\nend")
+	}
 }

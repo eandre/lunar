@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"reflect"
 )
 
 func (p *Parser) parseExpr(w *Writer, s ast.Expr) {
@@ -91,12 +92,24 @@ func (p *Parser) parseBasicLit(w *Writer, e *ast.BasicLit) {
 }
 
 func (p *Parser) parseBinaryExpr(w *Writer, e *ast.BinaryExpr) {
+	isStr := func(x ast.Expr) bool {
+		typ := p.exprType(e.X).Underlying()
+		b, ok := typ.(*types.Basic)
+		return ok && (b.Info()&types.IsString) != 0
+	}
+
 	p.parseExpr(w, e.X)
 	w.WriteByte(' ')
 	switch e.Op {
 	// Expressions that are cross-compatible
-	case token.ADD, token.SUB, token.MUL, token.QUO, token.REM, token.EQL, token.LSS, token.GTR, token.LEQ, token.GEQ:
+	case token.SUB, token.MUL, token.QUO, token.REM, token.EQL, token.LSS, token.GTR, token.LEQ, token.GEQ:
 		w.WriteString(e.Op.String())
+	case token.ADD:
+		if isStr(e.X) || isStr(e.Y) {
+			w.WriteString("..")
+		} else {
+			w.WriteString("+")
+		}
 	case token.NOT:
 		w.WriteString("not")
 	case token.NEQ:
@@ -112,7 +125,17 @@ func (p *Parser) parseBinaryExpr(w *Writer, e *ast.BinaryExpr) {
 		}
 		w.WriteString(" = ")
 		p.parseExpr(w, e.X)
-		w.WriteByte(e.Op.String()[0])
+
+		// Handle add separately
+		if e.Op == token.ADD_ASSIGN {
+			if isStr(e.X) || isStr(e.Y) {
+				w.WriteString("..")
+			} else {
+				w.WriteString("+")
+			}
+		} else {
+			w.WriteByte(e.Op.String()[0])
+		}
 	default:
 		p.errorf(e, "Got unhandled binary expression token type %q", e.Op.String())
 	}
@@ -212,14 +235,13 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 			var fieldName string
 			w.WriteString(`["`)
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
-				p.parseExpr(w, kv.Key)
-				value = kv.Value
 				fieldName = kv.Key.(*ast.Ident).Name
+				value = kv.Value
 			} else {
 				fieldName = typ.Field(i).Name()
-				w.WriteString(fieldName)
 				value = el
 			}
+			w.WriteString(getFieldName(typ, fieldName))
 			w.WriteString(`"] = `)
 			p.parseExpr(w, value)
 			if (i + 1) != nel {
@@ -233,13 +255,13 @@ func (p *Parser) parseCompositeLit(w *Writer, l *ast.CompositeLit) {
 		for i := 0; i < typ.NumFields(); i++ {
 			field := typ.Field(i)
 			if !initialized[field.Name()] {
-				if val := p.getZeroValue(w, field.Type()); val != "nil" {
+				if val := p.getZeroValue(w, field.Type(), typ.Tag(i)); val != "nil" {
 					if i > 0 || len(initialized) > 0 {
 						// We have a previous field; add a preceding comma
 						w.WriteString(", ")
 					}
 
-					w.WriteStringf(`["%s"] = %s`, field.Name(), val)
+					w.WriteStringf(`["%s"] = %s`, computeFieldName(field.Name(), typ.Tag(i)), val)
 				}
 			}
 		}
@@ -304,6 +326,23 @@ func (p *Parser) parseFunc(w *Writer, typ *ast.FuncType, body *ast.BlockStmt, re
 	w.WriteString("end")
 }
 
+func getFieldName(strct *types.Struct, defaultName string) string {
+	for i := 0; i < strct.NumFields(); i++ {
+		if strct.Field(i).Name() == defaultName {
+			return computeFieldName(defaultName, strct.Tag(i))
+		}
+	}
+	return defaultName
+}
+
+func computeFieldName(defaultName, tag string) string {
+	st := reflect.StructTag(tag)
+	if name := st.Get("luaname"); name != "" {
+		return name
+	}
+	return defaultName
+}
+
 func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, inCall bool) {
 	if ident, ok := e.X.(*ast.Ident); ok {
 		obj := p.identObject(ident)
@@ -339,12 +378,20 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, inCall bool) 
 		}
 	}
 
+	selName := e.Sel.Name
+	if !isMethod {
+		// Not a method, but is it a field with a tag?
+		if strct, ok := selTyp.Underlying().(*types.Struct); ok {
+			selName = getFieldName(strct, selName)
+		}
+	}
+
 	if inCall {
 		p.parseExpr(w, e.X)
 		if isMethod {
-			w.WriteStringf(`:%s`, e.Sel.Name)
+			w.WriteStringf(`:%s`, selName)
 		} else {
-			w.WriteStringf(`.%s`, e.Sel.Name)
+			w.WriteStringf(`.%s`, selName)
 		}
 		return
 	}
@@ -355,13 +402,13 @@ func (p *Parser) parseSelectorExpr(w *Writer, e *ast.SelectorExpr, inCall bool) 
 		// Method expression; create a stable closure to preserve equality.
 		w.WriteString("builtins.create_closure(")
 		p.parseExpr(w, e.X)
-		w.WriteStringf(`, "%s")`, e.Sel.Name)
+		w.WriteStringf(`, "%s")`, selName)
 		return
 	}
 
 	// Regular field lookup
 	p.parseExpr(w, e.X)
-	w.WriteStringf(`.%s`, e.Sel.Name)
+	w.WriteStringf(`.%s`, selName)
 }
 
 func (p *Parser) parseUnaryExpr(w *Writer, e *ast.UnaryExpr) {
@@ -404,7 +451,7 @@ func (p *Parser) parseIndexExpr(w *Writer, e *ast.IndexExpr, assign bool) {
 
 	if !assign {
 		w.WriteString(" or ")
-		p.writeZeroValue(w, p.exprType(e).Underlying())
+		p.writeZeroValue(w, p.exprType(e).Underlying(), "")
 		w.WriteByte(')')
 	}
 }
@@ -429,11 +476,16 @@ func (p *Parser) parseZeroValue(w *Writer, typ ast.Expr) {
 	}
 }
 
-func (p *Parser) writeZeroValue(w *Writer, typ types.Type) {
-	w.WriteString(p.getZeroValue(w, typ))
+func (p *Parser) writeZeroValue(w *Writer, typ types.Type, tag string) {
+	w.WriteString(p.getZeroValue(w, typ, tag))
 }
 
-func (p *Parser) getZeroValue(w *Writer, typ types.Type) string {
+func (p *Parser) getZeroValue(w *Writer, typ types.Type, tag string) string {
+	st := reflect.StructTag(tag)
+	if val := st.Get("luadefault"); val != "" {
+		return val
+	}
+
 	switch typ := typ.(type) {
 	case *types.Map:
 		return "nil"

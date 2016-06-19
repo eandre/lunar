@@ -15,7 +15,7 @@ func (p *Parser) parseBuiltin(w *Writer, e *ast.CallExpr, tav types.TypeAndValue
 			w.WriteString("{}")
 		case *types.Slice:
 			w.WriteString("builtins.makeSlice(function() return ")
-			p.writeZeroValue(w, typ.Elem())
+			p.writeZeroValue(w, typ.Elem(), "")
 			w.WriteString(" end")
 			if len(e.Args) > 1 {
 				w.WriteString(", ")
@@ -79,8 +79,9 @@ func (p *Parser) parseBuiltin(w *Writer, e *ast.CallExpr, tav types.TypeAndValue
 			p.parseExpr(w, e.Args[0])
 			w.WriteByte(')')
 		default:
-			w.WriteByte('#')
+			w.WriteString("builtins.length(")
 			p.parseExpr(w, e.Args[0])
+			w.WriteByte(')')
 		}
 	default:
 		p.errorf(e, "Unhandled builtin %s", id.Name)
