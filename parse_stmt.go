@@ -127,6 +127,16 @@ func (p *Parser) parseReturnStmt(w *Writer, r *ast.ReturnStmt) {
 }
 
 func (p *Parser) parseIfStmt(w *Writer, s *ast.IfStmt) {
+	if s.Init != nil {
+		w.WriteLine("do")
+		w.Indent()
+		p.parseStmt(w, s.Init)
+		defer func() {
+			w.Dedent()
+			w.WriteLine("end")
+		}()
+	}
+
 	w.WriteString("if ")
 	p.parseExpr(w, s.Cond)
 	w.WriteString(" then")
@@ -180,7 +190,7 @@ func (p *Parser) parseRangeStmt(w *Writer, s *ast.RangeStmt) {
 
 	switch t := p.exprType(s.X).(type) {
 	case *types.Slice:
-		w.WriteString("ipairs(")
+		w.WriteString("builtins.slice_iter(")
 		p.parseExpr(w, s.X)
 		// Add "or {}" to match Go's behavior of iteration over nil slices
 		w.WriteString(" or {})")

@@ -71,6 +71,19 @@ function builtins.run_inits()
 	end
 end
 
+
+local function _slice_iter(tbl, i)
+	i = i + 1 -- zero-based
+	local v = tbl[i+1]
+	if v then
+		return i, v
+	end
+end
+
+function builtins.slice_iter(tbl)
+	return _slice_iter, tbl, -1
+end
+
 local closureCache = setmetatable({}, {__mode="k"}) -- weak keys
 function builtins.create_closure(obj, funcName)
 	-- See if we have a closure cache for this object already
